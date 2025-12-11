@@ -1,4 +1,5 @@
 import os, sys
+import json
 # 절대 경로 지정 
 CURRENT_DIR = os.path.dirname(__file__)
 PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, "..", ".."))
@@ -7,6 +8,8 @@ sys.path.append(PROJECT_ROOT)
 from final_runpod_server.sllm_model import build_agent, process_transcript_with_chunks
 from final_runpod_server.main_model import load_model_q, load_faiss_db, escape_curly
 from gptscore.log.gptscore_utils import Sample, compute_gptscore_for_sample
+from gptscore.log.judge_score_utils import Sample as JudgeSample, compute_judge_score_for_sample
+
 
 db_path = '/workspace/final_runpod_server/faiss_db_merged/'
 vector_store, embedding_model = load_faiss_db(db_path)
@@ -77,10 +80,28 @@ if __name__ == "__main__":
             "이 회의록을 기반으로 요약, 이슈, 후속 태스크를 한국어로 정리하라."
         )
 
+        # full_summary / full_tasks를 문자열로 정규화
+        if isinstance(result["full_summary"], dict):
+            summary_text = json.dumps(result["full_summary"], ensure_ascii = False, indent = 2)
+        else:
+            summary_text = str(result["full_summary"])
+
+        if isinstance(result["full_tasks"], dict):
+            tasks_text = json.dumps(result["full_tasks"], ensure_ascii=False, indent =2)
+        else:
+            tasks_text = str(result["full_tasks"])
+
+        answer_text = (
+            " [Summary] \n"
+            + summary_text
+            + "\n\n [Tasks] \n"
+            + tasks_text
+        )
+
         sample = Sample(
             transcript=query,
             user_request = default_user_request,
-            answer = result,
+            answer = answer_text,
         )
 
         aspects = ["faithfulness", "instruction_following", "structure_clarity"]
@@ -88,3 +109,29 @@ if __name__ == "__main__":
         for aspect in aspects:
             score = compute_gptscore_for_sample(sample, aspect)
             print(f"  - {aspect}: {score}")
+
+        # =========================
+
+        # ---------- LLM-as-a-judge (gpt-4o-mini) ----------
+        judge_sample = JudgeSample(
+            transcript=query,
+            user_request=default_user_request,
+            answer=answer_text,
+        )
+
+        # True → reasoning 포함, False → 점수만 (비용 절약)
+        with_reasoning = True
+
+        print("\nLLM-as-a-judge (gpt-4o-mini) 평가 결과 (1~5 점수 + 이유):")
+        for aspect in aspects:
+            score, reasoning = compute_judge_score_for_sample(
+                judge_sample,
+                aspect,
+                with_reasoning=with_reasoning,
+                return_reasoning=True,   # ← 여기 추가
+            )
+            print(f"[{aspect}] 점수: {score}")
+            print("[이유]")
+            print(reasoning)
+            print("-" * 60)
+
