@@ -6,7 +6,8 @@ PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, "..", ".."))
 sys.path.append(PROJECT_ROOT)
 
 from final_runpod_server.sllm_model import build_agent, process_transcript_with_chunks
-from final_runpod_server.main_model import load_model_q, load_faiss_db, escape_curly
+from final_runpod_server.main_model import load_model_q, load_faiss_db
+# , escape_curly
 from gptscore.log.gptscore_utils import Sample, compute_gptscore_for_sample
 from gptscore.log.judge_score_utils import Sample as JudgeSample, compute_judge_score_for_sample
 
@@ -17,15 +18,16 @@ vector_store, embedding_model = load_faiss_db(db_path)
 
 # ===== 메인 실행부 =====
 if __name__ == "__main__":
-    user_domain = input("도메인 입력 (accounting, design, marketing_economy, it): ").strip()
-    if user_domain.upper() == "ALL" or user_domain == "" :
-        domain_filter = None
-    else:
-        domain_filter = user_domain
+    # user_domain = input("도메인 입력 (accounting, design, marketing_economy, it): ").strip()
+    # if user_domain.upper() == "ALL" or user_domain == "" :
+    #     domain_filter = None
+    # else:
+    #     domain_filter = user_domain
+    domain = input("도메인 입력 (accounting, design, marketing_economy, it): ").strip()
 
     # 모델 연결 (1.5b 파튜 기본값 설정됨)
     model = load_model_q()
-    agent = build_agent(model=model, vector_store=vector_store, domain=domain_filter)
+    agent = build_agent(model=model, vector_store=vector_store, domain=domain)
 
     while True:
         print("\n" + "="*60)
@@ -41,15 +43,16 @@ if __name__ == "__main__":
             break
 
         # 청크 처리 및 전체 요약/태스크 추출
-        result = process_transcript_with_chunks(agent=agent, transcript=query, max_chunk_tokens=1500)
+        # result = process_transcript_with_chunks(agent=agent, transcript=query, max_chunk_tokens=1500)
+        result = process_transcript_with_chunks(transcript=query, domain=domain)
 
         # 결과 출력
         print("\n" + "="*60)
         print("최종 결과")
         print("="*60 + "\n")
 
-        if result["chunk_results"]:
-            print(f"✅ {len(result['chunk_results'])}개 청크 처리 완료\n")
+        # if result["chunk_results"]:
+        #     print(f"✅ {len(result['chunk_results'])}개 청크 처리 완료\n")
 
         print("📝 안건/요약:")
         print("-" * 60)
