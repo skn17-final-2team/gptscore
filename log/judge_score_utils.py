@@ -46,6 +46,17 @@ ASPECT_TEMPLATES: Dict[str, str] = {
 - 회의록이 제공하지 않는 세부 사항을 임의로 보완해서도 안 됩니다.
 - Summary JSON / Tasks JSON / Final Answer 어떤 형식이라도, 포함된 내용은 transcript 기반이어야 합니다.
 
+[중요 – 태스크(Task) 필드 평가 규칙]
+- Tasks JSON의 due 필드는 반드시 회의록에 명시적으로 등장한 표현이어야 합니다.
+  (예: "이번 주 금요일까지", "내일 오전", "다음 주 초", "오늘 중")
+- due_date 필드는 위 due 표현을 기반으로 시스템이 달력 날짜(YYYY-MM-DD)로 정규화한
+  **파생 필드(derived field)** 로 간주합니다.
+- 따라서 due_date 자체가 회의록에 문자 그대로 등장하지 않더라도,
+  해당 due 표현이 회의록에 명시적으로 존재한다면 환각으로 판단하지 않습니다.
+- 단, due 표현이 회의록에 존재하지 않는데 생성된 due_date는 환각으로 간주합니다.
+- due 표현으로부터 날짜를 확정할 수 없는 경우,
+  due_date가 null로 설정되어 있다면 사실성 위반이 아닙니다.
+
 [회의록(Transcript)]
 {transcript}
 

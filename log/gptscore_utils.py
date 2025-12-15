@@ -8,21 +8,13 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import pandas as pd
 
-# ---------------------------------------------------------
-# 0. 평가에 사용할 Qwen 모델 설정
-#    (VRAM 여유 있으면 7B, 부족하면 1.5B로 바꿔서 사용)
-# ---------------------------------------------------------
-
-# 가장 먼저 시도할 evaluator 모델
 EVAL_MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
-# 만약 메모리 부족으로 터지면 아래처럼 교체:
-# EVAL_MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct"
 
 print(f"[GPTScore] Loading evaluator model: {EVAL_MODEL_NAME}")
 eval_tokenizer = AutoTokenizer.from_pretrained(EVAL_MODEL_NAME)
 eval_model = AutoModelForCausalLM.from_pretrained(
     EVAL_MODEL_NAME,
-    device_map="auto",  # GPU 있으면 자동으로 올림
+    device_map="auto", 
     torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
 )
 eval_model.eval()
@@ -30,23 +22,11 @@ eval_model.eval()
 
 @dataclass
 class Sample:
-    """
-    GPTScore 평가 단위 하나
-    - transcript : 회의록 (전문 또는 일부)
-    - user_request : 이 회의에 대해 모델이 수행해야 할 작업 설명
-    - answer : 에이전트 최종 출력 (Final Answer 또는 JSON 문자열 등)
-    """
     transcript: str
     user_request: str
     answer: str
 
-
-# ---------------------------------------------------------
-# 1. 정밀 한국어 GPTScore 평가 프롬프트 3종 (이미 합의한 버전)
-# ---------------------------------------------------------
-
 ASPECT_TEMPLATES: Dict[str, str] = {
-    # 1) 사실성 / 환각 여부
     "faithfulness": """당신은 IT 프로젝트 회의록을 분석하는 전문 에이전트입니다.
 
 [평가 목적]
@@ -58,6 +38,17 @@ ASPECT_TEMPLATES: Dict[str, str] = {
 - 회의록이 제공하지 않는 세부 사항을 임의로 보완해서도 안 됩니다.
 - Summary JSON / Tasks JSON / Final Answer 어떤 형식이라도, 포함된 내용은 transcript 기반이어야 합니다.
 
+[중요 – 태스크(Task) 필드 평가 규칙]
+- Tasks JSON의 due 필드는 반드시 회의록에 명시적으로 등장한 표현이어야 합니다.
+  (예: "이번 주 금요일까지", "내일 오전", "다음 주 초", "오늘 중")
+- due_date 필드는 위 due 표현을 기반으로 시스템이 달력 날짜(YYYY-MM-DD)로 정규화한
+  파생 필드(derived field)로 간주합니다.
+- 따라서 due_date 자체가 회의록에 문자 그대로 등장하지 않더라도,
+  해당 due 표현이 회의록에 명시적으로 존재한다면 환각으로 판단하지 않습니다.
+- 단, due 표현이 회의록에 존재하지 않는데 생성된 due_date는 환각으로 간주합니다.
+- due 표현으로부터 날짜를 확정할 수 없는 경우,
+  due_date가 null이라면 사실성 위반이 아닙니다.
+
 [회의록(Transcript)]
 {transcript}
 
@@ -67,7 +58,6 @@ ASPECT_TEMPLATES: Dict[str, str] = {
 [모델 생성 최종 답변(Answer)]
 {answer}""",
 
-    # 2) Instruction Following
     "instruction_following": """당신은 IT 회의 분석을 수행하는 ReAct 기반 LLM 에이전트입니다.
 
 [평가 목적]
@@ -96,7 +86,6 @@ ASPECT_TEMPLATES: Dict[str, str] = {
 [모델 생성 최종 답변(Answer)]
 {answer}""",
 
-    # 3) 구조·명확성
     "structure_clarity": """당신은 IT 프로젝트 회의 문서를 정리하는 전문 기술 작가입니다.
 
 [평가 목적]
@@ -121,10 +110,6 @@ ASPECT_TEMPLATES: Dict[str, str] = {
 
 
 def build_gptscore_prompt(aspect: str, sample: Sample, include_answer: bool) -> str:
-    """
-    aspect와 sample을 받아 GPTScore용 평가 프롬프트 문자열을 만든다.
-    include_answer=False 이면 Answer 부분만 빈 상태로 두고 생성 (offset 계산용).
-    """
     template = ASPECT_TEMPLATES[aspect]
     answer_text = sample.answer if include_answer else ""
     return template.format(
@@ -134,20 +119,10 @@ def build_gptscore_prompt(aspect: str, sample: Sample, include_answer: bool) -> 
     )
 
 
-# ---------------------------------------------------------
-# 2. 진짜 GPTScore (로그확률 기반) 계산 핵심
-# ---------------------------------------------------------
-
 def _compute_answer_logprobs(
     prompt_without_answer: str,
     full_prompt: str,
 ) -> float:
-    """
-    full_prompt 전체에 대한 토큰 로그확률을 계산한 뒤,
-    answer(= full_prompt - prompt_without_answer) 구간의
-    평균 log p 를 반환.
-    """
-    # 1) 토크나이즈
     enc_wo = eval_tokenizer(prompt_without_answer, return_tensors="pt")
     enc_full = eval_tokenizer(full_prompt, return_tensors="pt")
 
@@ -155,19 +130,13 @@ def _compute_answer_logprobs(
 
     with torch.no_grad():
         outputs = eval_model(input_ids=input_ids_full)
-        logits = outputs.logits  # [1, seq_len, vocab_size]
+        logits = outputs.logits 
 
-    # LM 특성상 logits[:, t, :]는 input_ids[:, t] 다음 토큰 분포
-    # → log p(x_{t+1} | x_<=t)
-    logprobs = torch.log_softmax(logits[:, :-1, :], dim=-1)   # [1, seq_len-1, vocab]
-    target_ids = input_ids_full[:, 1:]                        # [1, seq_len-1]
+    logprobs = torch.log_softmax(logits[:, :-1, :], dim=-1)   
+    target_ids = input_ids_full[:, 1:]                       
 
-    token_logprobs = logprobs.gather(2, target_ids.unsqueeze(-1)).squeeze(-1)  # [1, seq_len-1]
+    token_logprobs = logprobs.gather(2, target_ids.unsqueeze(-1)).squeeze(-1)  
 
-    # answer 시작 토큰 offset 계산
-    # enc_wo의 길이 = "prompt_without_answer" 토큰 수
-    # token_logprobs[0, i] 는 input_ids_full[0, i+1] 에 대한 log p
-    # → answer 첫 토큰 예측 위치 = len(enc_wo) - 1
     offset_tokens = enc_wo["input_ids"].shape[1]
     start_idx = offset_tokens - 1  # 첫 answer 토큰 예측 위치
 
