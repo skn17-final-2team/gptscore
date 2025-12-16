@@ -59,7 +59,7 @@ ASPECT_TEMPLATES: Dict[str, str] = {
 [모델 생성 최종 답변(Answer)]
 {answer}""",
 
-    "instruction_following": """당신은 IT 회의 분석을 수행하는 ReAct 기반 LLM 에이전트입니다.
+    "instruction_following": """당신은 IT 회의 분석을 수행하는 LLM 에이전트입니다.
 
 [평가 목적]
 아래 답변이 사용자 요청과 시스템 프롬프트에서 정의된 출력 규칙을 정확하게 따르고 있는지 평가합니다.
