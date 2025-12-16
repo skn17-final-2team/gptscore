@@ -8,13 +8,11 @@ import pandas as pd
 from dotenv import load_dotenv
 from openai import OpenAI
 
-# .env 로드 (OPENAI_API_KEY=sk-... 있어야 함)
 load_dotenv()
-client = OpenAI()  # OPENAI_API_KEY 환경변수 자동 사용
+client = OpenAI()  
 
 # 채점에 사용할 OpenAI 모델
-JUDGE_MODEL = "gpt-4o-mini"   # << 여기서 gpt-4o, gpt-4.1 등으로도 변경 가능
-
+JUDGE_MODEL = "gpt-4o-mini"   
 
 @dataclass
 class Sample:
@@ -28,10 +26,15 @@ class Sample:
     user_request: str
     answer: str
 
+def _sanitize_text(s) -> str:
+    if s is None:
+        return ""
+    if not isinstance(s, str):
+        s = str(s)
+    return s.encode("utf-8", "ignore").decode("utf-8", "ignore")
 
 # -------------------------
 # aspect별 평가 프롬프트
-# (정밀 한국어 버전)
 # -------------------------
 
 ASPECT_TEMPLATES: Dict[str, str] = {
@@ -171,6 +174,13 @@ def compute_judge_score_for_sample(
     - with_reasoning=False → 점수만 출력 (비용 절약용)
     - return_reasoning=True → (점수, 전체 응답 텍스트) 튜플로 반환
     """
+    
+    sample = Sample(
+        transcript=_sanitize_text(sample.transcript),
+        user_request=_sanitize_text(sample.user_request),
+        answer=_sanitize_text(sample.answer),
+    )
+    
     prompt = build_judge_prompt(aspect, sample, with_reasoning=with_reasoning)
 
     response = client.chat.completions.create(

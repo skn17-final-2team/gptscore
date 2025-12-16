@@ -8,7 +8,8 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import pandas as pd
 
-EVAL_MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
+# EVAL_MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
+EVAL_MODEL_NAME = "Qwen/Qwen3-14B"
 
 print(f"[GPTScore] Loading evaluator model: {EVAL_MODEL_NAME}")
 eval_tokenizer = AutoTokenizer.from_pretrained(EVAL_MODEL_NAME)
@@ -123,8 +124,23 @@ def _compute_answer_logprobs(
     prompt_without_answer: str,
     full_prompt: str,
 ) -> float:
-    enc_wo = eval_tokenizer(prompt_without_answer, return_tensors="pt")
-    enc_full = eval_tokenizer(full_prompt, return_tensors="pt")
+
+    if not isinstance(prompt_without_answer, str):
+        prompt_without_answer = str(prompt_without_answer)
+    if not isinstance(full_prompt, str):
+        full_prompt = str(full_prompt)
+
+    prompt_without_answer = str(prompt_without_answer)
+    full_prompt = str(full_prompt)
+    prompt_without_answer = prompt_without_answer.encode("utf-8", "ignore").decode("utf-8", "ignore")
+    full_prompt = full_prompt.encode("utf-8", "ignore").decode("utf-8", "ignore")
+
+
+    # enc_wo = eval_tokenizer(prompt_without_answer, return_tensors="pt")
+    # enc_full = eval_tokenizer(full_prompt, return_tensors="pt")
+    enc_wo = eval_tokenizer(text=prompt_without_answer, return_tensors="pt")
+    enc_full = eval_tokenizer(text=full_prompt, return_tensors="pt")
+
 
     input_ids_full = enc_full["input_ids"].to(eval_model.device)
 
